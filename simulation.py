@@ -1,6 +1,6 @@
 """
 Simple Physics Simulation
-A basic physics engine demonstrating gravity, velocity, and collisions.
+A basic physics engine demonstrating gravity, velocity, friction, and collisions.
 """
 
 import numpy as np
@@ -11,7 +11,7 @@ from matplotlib.animation import FuncAnimation
 class Particle:
     """Represents a single particle in the simulation."""
     
-    def __init__(self, x, y, vx=0, vy=0, radius=0.5, mass=1.0, color='blue'):
+    def __init__(self, x, y, vx=0, vy=0, radius=0.5, mass=1.0, color='blue', friction_coefficient=0.1):
         """
         Initialize a particle.
         
@@ -21,6 +21,7 @@ class Particle:
         - radius: Size of the particle
         - mass: Mass of the particle
         - color: Color for visualization
+        - friction_coefficient: Coefficient of friction (0 = no friction, higher = more friction)
         """
         self.x = x
         self.y = y
@@ -29,8 +30,9 @@ class Particle:
         self.radius = radius
         self.mass = mass
         self.color = color
+        self.friction_coefficient = friction_coefficient
     
-    def update(self, dt, gravity=-9.8, bounds=None):
+    def update(self, dt, gravity=-9.8, bounds=None, surface_friction=0.0):
         """
         Update particle position and velocity based on physics.
         
@@ -38,7 +40,30 @@ class Particle:
         - dt: Time step
         - gravity: Gravitational acceleration (negative = downward)
         - bounds: Dictionary with 'x_min', 'x_max', 'y_min', 'y_max' for boundaries
+        - surface_friction: Additional friction from the surface (applied when on ground)
         """
+        # Calculate total friction coefficient (particle friction + surface friction)
+        total_friction = self.friction_coefficient + surface_friction
+        
+        # Apply friction (opposes motion, reduces velocity)
+        # Friction force is proportional to velocity magnitude
+        if total_friction > 0:
+            speed = np.sqrt(self.vx**2 + self.vy**2)
+            if speed > 0:
+                # Friction acceleration opposes velocity direction
+                friction_ax = -total_friction * (self.vx / speed) * speed
+                friction_ay = -total_friction * (self.vy / speed) * speed
+                
+                # Apply friction to velocity
+                self.vx += friction_ax * dt
+                self.vy += friction_ay * dt
+                
+                # Stop very small velocities to prevent jitter
+                if abs(self.vx) < 0.01:
+                    self.vx = 0
+                if abs(self.vy) < 0.01:
+                    self.vy = 0
+        
         # Apply gravity to vertical velocity
         self.vy += gravity * dt
         
@@ -68,7 +93,7 @@ class Particle:
 class PhysicsSimulation:
     """Main physics simulation engine."""
     
-    def __init__(self, width=10, height=10, gravity=-9.8):
+    def __init__(self, width=10, height=10, gravity=-9.8, surface_friction=0.0):
         """
         Initialize the simulation.
         
@@ -76,10 +101,12 @@ class PhysicsSimulation:
         - width: Width of the simulation area
         - height: Height of the simulation area
         - gravity: Gravitational acceleration
+        - surface_friction: Coefficient of friction for the surface (0 = no friction)
         """
         self.width = width
         self.height = height
         self.gravity = gravity
+        self.surface_friction = surface_friction
         self.particles = []
         self.bounds = {
             'x_min': 0,
@@ -96,7 +123,10 @@ class PhysicsSimulation:
     def update(self):
         """Update all particles in the simulation."""
         for particle in self.particles:
-            particle.update(self.dt, self.gravity, self.bounds)
+            # Apply surface friction when particle is on or near the ground
+            # (you can modify this logic for more complex friction behavior)
+            surface_friction = self.surface_friction if particle.y - particle.radius <= self.bounds['y_min'] + 0.1 else 0.0
+            particle.update(self.dt, self.gravity, self.bounds, surface_friction)
     
     def run_animation(self, duration=10, interval=10):
         """
@@ -140,21 +170,22 @@ class PhysicsSimulation:
 
 def main():
     """Main function to run a simple example simulation."""
-    # Create simulation
-    sim = PhysicsSimulation(width=10, height=10, gravity=-9.8)
+    # Create simulation with surface friction
+    sim = PhysicsSimulation(width=10, height=10, gravity=-9.8, surface_friction=0.5)
     
-    # Add some particles with different initial conditions
-    # Particle 1: Dropped from top
-    sim.add_particle(Particle(x=2, y=9, vx=0, vy=0, radius=0.5, color='blue'))
+    # Add some particles with different initial conditions and friction coefficients
+    # Particle 1: Dropped from top, low friction (slippery)
+    sim.add_particle(Particle(x=2, y=9, vx=0, vy=0, radius=0.5, color='blue', friction_coefficient=0.1))
     
-    # Particle 2: Thrown with initial velocity
-    sim.add_particle(Particle(x=5, y=8, vx=3, vy=2, radius=0.5, color='red'))
+    # Particle 2: Thrown with initial velocity, medium friction
+    sim.add_particle(Particle(x=5, y=8, vx=3, vy=2, radius=0.5, color='red', friction_coefficient=0.3))
     
-    # Particle 3: Another particle
-    sim.add_particle(Particle(x=8, y=9, vx=-2, vy=0, radius=0.5, color='green'))
+    # Particle 3: Another particle, high friction (sticky)
+    sim.add_particle(Particle(x=8, y=9, vx=-2, vy=0, radius=0.5, color='green', friction_coefficient=0.5))
     
     # Run the animation
-    print("Starting physics simulation...")
+    print("Starting physics simulation with friction...")
+    print("Notice how particles slow down due to friction!")
     print("Close the window to stop.")
     sim.run_animation(duration=10, interval=10)
 
