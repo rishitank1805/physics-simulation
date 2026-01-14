@@ -34,11 +34,19 @@ Move your mouse to add density (like smoke/dye), and click to add velocity (like
 
 ### Tap Flow Simulation
 
-**With Modern CustomTkinter UI (Recommended):**
+**With Modern CustomTkinter UI:**
 ```bash
 python tap_flow_simulation_ui.py
 ```
 Features a beautiful, modern dark-themed interface with smooth sliders, styled buttons, and real-time parameter display!
+
+### Advanced Fluid Dynamics Simulation ⭐ NEW
+
+**Professional-grade fluid solver:**
+```bash
+python advanced_fluid_simulation.py
+```
+A sophisticated 2D Navier-Stokes fluid solver with realistic physics, multiple visualization modes, and interactive controls!
 
 ## How It Works
 
@@ -209,6 +217,87 @@ sim.run_animation(duration=30, interval=20)
 - **Larger cross-section** → Higher flow rate (more area for fluid to pass through)
 - **Different fluids** → Same velocity (Torricelli's law doesn't depend on density), but different flow patterns due to viscosity
 - **Viscosity** affects how the fluid flows after exiting (honey flows slower, water flows faster)
+
+## Advanced Fluid Dynamics Simulation
+
+A professional-grade 2D fluid dynamics simulation using the **Navier-Stokes equations** with pressure projection for incompressible flow.
+
+### Features
+
+- **Full Navier-Stokes Solver**: Implements complete fluid dynamics equations
+  - Velocity advection
+  - Viscosity diffusion
+  - Pressure projection (incompressibility)
+  - Proper boundary conditions
+
+- **Advanced Visualization**:
+  - **Density Mode**: See fluid density distribution (like smoke/dye)
+  - **Velocity Mode**: Visualize velocity magnitude field
+  - **Combined Mode**: Both density and velocity together
+  - **Velocity Vectors**: Optional quiver plot showing flow direction
+
+- **Interactive Controls**:
+  - **Mouse Movement**: Add fluid density continuously
+  - **Click and Drag**: Add velocity (force) to the fluid
+  - **Viscosity Slider**: Adjust fluid viscosity in real-time
+  - **Visualization Modes**: Switch between different views
+  - **Clear Button**: Reset the simulation
+
+- **Realistic Physics**:
+  - Proper fluid advection (fluid moves with itself)
+  - Viscosity effects (thicker fluids flow slower)
+  - Pressure-based incompressibility
+  - No-slip boundary conditions
+  - Realistic vortices and turbulence
+
+### How It Works
+
+The simulation solves the **Navier-Stokes equations**:
+
+```
+∂u/∂t + (u·∇)u = -∇p/ρ + ν∇²u + f
+∇·u = 0
+```
+
+Where:
+- `u` = velocity field
+- `p` = pressure
+- `ν` = viscosity
+- `f` = external forces
+
+The solver uses:
+1. **Diffusion Step**: Applies viscosity
+2. **Advection Step**: Moves velocity and density with the flow
+3. **Projection Step**: Ensures incompressibility (divergence-free velocity)
+
+### Usage
+
+1. **Move your mouse** over the simulation to add fluid
+2. **Click and drag** to add velocity/force
+3. **Adjust viscosity** to see how it affects flow
+4. **Switch visualization modes** to see different aspects
+5. **Enable velocity vectors** to see flow direction
+
+### Customization
+
+```python
+# Create solver with custom parameters
+solver = AdvancedFluidSolver(
+    width=150,        # Grid width
+    height=150,       # Grid height
+    viscosity=0.01,   # Viscosity (0.0 = inviscid, 0.1 = very viscous)
+    dt=0.1            # Time step
+)
+
+# Add velocity source
+solver.add_velocity_source(x=50, y=50, vx=2, vy=-1, radius=5)
+
+# Add density source
+solver.add_density_source(x=50, y=50, amount=100, radius=5)
+
+# Step simulation
+solver.step()
+```
 
 ## Future Enhancements
 
