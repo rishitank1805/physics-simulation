@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.patches import Rectangle, Circle
 import time
 
 # Set appearance mode
@@ -22,22 +21,15 @@ class AdvancedFluidSolver:
     """Advanced 2D fluid solver using Navier-Stokes equations."""
     
     def __init__(self, width=100, height=100, viscosity=0.01, dt=0.1):
-        """
-        Initialize the fluid solver.
-        
-        Parameters:
-        - width, height: Grid dimensions
-        - viscosity: Fluid viscosity (higher = more viscous)
-        - dt: Time step
-        """
+        """Initialize the fluid solver."""
         self.width = width
         self.height = height
         self.viscosity = viscosity
         self.dt = dt
         
-        # Velocity fields (staggered grid)
-        self.u = np.zeros((height, width + 1))  # x-velocity
-        self.v = np.zeros((height + 1, width))  # y-velocity
+        # Velocity fields (centered grid for simplicity)
+        self.u = np.zeros((height, width))  # x-velocity
+        self.v = np.zeros((height, width))  # y-velocity
         self.u_prev = np.zeros_like(self.u)
         self.v_prev = np.zeros_like(self.v)
         
@@ -47,64 +39,56 @@ class AdvancedFluidSolver:
         # Density field (for visualization)
         self.density = np.zeros((height, width))
         self.density_prev = np.zeros((height, width))
-        
-        # Source locations for adding fluid
-        self.sources = []
     
     def add_velocity_source(self, x, y, vx, vy, radius=5):
         """Add velocity at a specific location."""
-        y_idx = int(y)
-        x_idx = int(x)
+        y_idx = int(np.clip(y, 0, self.height - 1))
+        x_idx = int(np.clip(x, 0, self.width - 1))
         
         for dy in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
                 dist_sq = dx*dx + dy*dy
                 if dist_sq <= radius * radius:
-                    cy = max(0, min(self.height - 1, y_idx + dy))
-                    cx = max(0, min(self.width - 1, x_idx + dx))
-                    weight = 1 - dist_sq / (radius * radius)
-                    
-                    if 0 <= cx < self.width:
-                        self.u[cy, cx] += vx * weight
-                        self.u[cy, cx + 1] += vx * weight
-                    if 0 <= cy < self.height:
-                        self.v[cy, cx] += vy * weight
-                        self.v[cy + 1, cx] += vy * weight
+                    cy = int(np.clip(y_idx + dy, 0, self.height - 1))
+                    cx = int(np.clip(x_idx + dx, 0, self.width - 1))
+                    weight = max(0, 1 - dist_sq / (radius * radius))
+                    self.u[cy, cx] += vx * weight
+                    self.v[cy, cx] += vy * weight
     
     def add_density_source(self, x, y, amount, radius=5):
         """Add density (fluid) at a specific location."""
-        y_idx = int(y)
-        x_idx = int(x)
+        y_idx = int(np.clip(y, 0, self.height - 1))
+        x_idx = int(np.clip(x, 0, self.width - 1))
         
         for dy in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
                 dist_sq = dx*dx + dy*dy
                 if dist_sq <= radius * radius:
-                    cy = max(0, min(self.height - 1, y_idx + dy))
-                    cx = max(0, min(self.width - 1, x_idx + dx))
-                    weight = 1 - dist_sq / (radius * radius)
+                    cy = int(np.clip(y_idx + dy, 0, self.height - 1))
+                    cx = int(np.clip(x_idx + dx, 0, self.width - 1))
+                    weight = max(0, 1 - dist_sq / (radius * radius))
                     self.density[cy, cx] += amount * weight
     
-    def set_boundary_conditions(self, b, field, is_velocity=False):
-        """Apply boundary conditions (no-slip for velocity, zero for density)."""
+    def set_bounds(self, b, x, is_velocity=False):
+        """Apply boundary conditions."""
         if is_velocity:
-            # No-slip boundary conditions
-            field[0, :] = -field[1, :]
-            field[-1, :] = -field[-2, :]
-            field[:, 0] = -field[:, 1]
-            field[:, -1] = -field[:, -2]
+            # No-slip boundary
+            x[0, :] = -x[1, :]
+            x[-1, :] = -x[-2, :]
+            x[:, 0] = -x[:, 1]
+            x[:, -1] = -x[:, -2]
         else:
             # Zero boundary for density
-            field[0, :] = field[1, :]
-            field[-1, :] = field[-2, :]
-            field[:, 0] = field[:, 1]
-            field[:, -1] = field[:, -2]
+            x[0, :] = x[1, :]
+            x[-1, :] = x[-2, :]
+            x[:, 0] = x[:, 1]
+            x[:, -1] = x[:, -2]
         
         # Corner conditions
-        field[0, 0] = 0.5 * (field[1, 0] + field[0, 1])
-        field[0, -1] = 0.5 * (field[1, -1] + field[0, -2])
-        field[-1, 0] = 0.5 * (field[-2, 0] + field[-1, 1])
-        field[-1, -1] = 0.5 * (field[-2, -1] + field[-1, -2])
+        x[0, 0] = 0.5 * (x[1, 0] + x[0, 1])
+        x[0, -1] = 0.5 * (x[1, -1] + x[0, -2])
+        x[-1, 0] = 0.5 * (x[-2, 0] + x[-1, 1])
+        x[-1, -1] = 0.5 * (x[-2, -1] + x[-1, -2])
     
     def linear_solve(self, b, x, x0, a, c, iterations=20, is_velocity=False):
         """Solve linear system using Gauss-Seidel iteration."""
@@ -112,10 +96,13 @@ class AdvancedFluidSolver:
             x[1:-1, 1:-1] = (x0[1:-1, 1:-1] + 
                            a * (x[2:, 1:-1] + x[:-2, 1:-1] + 
                                 x[1:-1, 2:] + x[1:-1, :-2])) / c
-            self.set_boundary_conditions(b, x, is_velocity)
+            self.set_bounds(b, x, is_velocity)
     
     def diffuse(self, b, x, x0, diff, dt, is_velocity=False):
         """Diffuse a field (viscosity effect)."""
+        if diff == 0:
+            x[:] = x0
+            return
         a = dt * diff * (self.width - 2) * (self.height - 2)
         self.linear_solve(b, x, x0, a, 1 + 4 * a, is_velocity=is_velocity)
     
@@ -127,24 +114,24 @@ class AdvancedFluidSolver:
         for j in range(1, self.height - 1):
             for i in range(1, self.width - 1):
                 # Trace back along velocity
-                x = i - dt0_x * u[j, i]
-                y = j - dt0_y * v[j, i]
+                x_pos = i - dt0_x * u[j, i]
+                y_pos = j - dt0_y * v[j, i]
                 
                 # Clamp to grid
-                x = max(0.5, min(self.width - 1.5, x))
-                y = max(0.5, min(self.height - 1.5, y))
+                x_pos = max(0.5, min(self.width - 1.5, x_pos))
+                y_pos = max(0.5, min(self.height - 1.5, y_pos))
                 
                 # Bilinear interpolation
-                i0, j0 = int(x), int(y)
-                i1, j1 = i0 + 1, j0 + 1
+                i0, j0 = int(x_pos), int(y_pos)
+                i1, j1 = min(i0 + 1, self.width - 1), min(j0 + 1, self.height - 1)
                 
-                s1, t1 = x - i0, y - j0
+                s1, t1 = x_pos - i0, y_pos - j0
                 s0, t0 = 1 - s1, 1 - t1
                 
                 d[j, i] = (s0 * (t0 * d0[j0, i0] + t1 * d0[j1, i0]) +
                           s1 * (t0 * d0[j0, i1] + t1 * d0[j1, i1]))
         
-        self.set_boundary_conditions(b, d, is_velocity)
+        self.set_bounds(b, d, is_velocity)
     
     def project(self, u, v, p, div):
         """Project velocity to be divergence-free (incompressible)."""
@@ -156,8 +143,8 @@ class AdvancedFluidSolver:
         )
         
         p.fill(0)
-        self.set_boundary_conditions(0, div, False)
-        self.set_boundary_conditions(0, p, False)
+        self.set_bounds(0, div, False)
+        self.set_bounds(0, p, False)
         
         # Solve for pressure
         self.linear_solve(0, p, div, 1, 4, is_velocity=False)
@@ -166,8 +153,8 @@ class AdvancedFluidSolver:
         u[1:-1, 1:-1] -= 0.5 * (p[1:-1, 2:] - p[1:-1, :-2]) / h
         v[1:-1, 1:-1] -= 0.5 * (p[2:, 1:-1] - p[:-2, 1:-1]) / h
         
-        self.set_boundary_conditions(1, u, True)
-        self.set_boundary_conditions(1, v, True)
+        self.set_bounds(1, u, True)
+        self.set_bounds(1, v, True)
     
     def step(self):
         """Perform one simulation step."""
@@ -196,13 +183,11 @@ class AdvancedFluidSolver:
         self.advect(0, self.density, self.density_prev, self.u, self.v, self.dt, is_velocity=False)
         
         # Decay density
-        self.density *= 0.995
+        self.density *= 0.998
     
     def get_velocity_magnitude(self):
         """Get velocity magnitude field for visualization."""
-        u_center = 0.5 * (self.u[:, :-1] + self.u[:, 1:])
-        v_center = 0.5 * (self.v[:-1, :] + self.v[1:, :])
-        return np.sqrt(u_center**2 + v_center**2)
+        return np.sqrt(self.u**2 + self.v**2)
 
 
 class AdvancedFluidApp(ctk.CTk):
@@ -223,7 +208,8 @@ class AdvancedFluidApp(ctk.CTk):
         self.mouse_x = self.solver.width // 2
         self.mouse_y = self.solver.height // 2
         self.mouse_pressed = False
-        self.last_update = time.time()
+        self.last_mouse_x = self.mouse_x
+        self.last_mouse_y = self.mouse_y
         
         # Setup UI
         self.create_widgets()
@@ -271,10 +257,6 @@ class AdvancedFluidApp(ctk.CTk):
             extent=[0, self.solver.width, 0, self.solver.height]
         )
         
-        # Velocity vectors (quiver plot)
-        x = np.arange(0, self.solver.width, 5)
-        y = np.arange(0, self.solver.height, 5)
-        X, Y = np.meshgrid(x, y)
         self.quiver = None
         
         self.fig.tight_layout()
@@ -427,18 +409,20 @@ class AdvancedFluidApp(ctk.CTk):
     
     def on_viz_mode_changed(self):
         """Handle visualization mode change."""
-        pass  # Will be handled in update_visualization
+        pass
     
     def on_mouse_move(self, event):
         """Handle mouse movement."""
-        if event.inaxes == self.ax:
-            self.mouse_x = int(event.xdata)
-            self.mouse_y = int(event.ydata)
+        if event.inaxes == self.ax and event.xdata is not None and event.ydata is not None:
+            self.mouse_x = int(np.clip(event.xdata, 0, self.solver.width - 1))
+            self.mouse_y = int(np.clip(event.ydata, 0, self.solver.height - 1))
     
     def on_mouse_press(self, event):
         """Handle mouse press."""
         if event.inaxes == self.ax:
             self.mouse_pressed = True
+            self.last_mouse_x = self.mouse_x
+            self.last_mouse_y = self.mouse_y
     
     def on_mouse_release(self, event):
         """Handle mouse release."""
@@ -450,6 +434,9 @@ class AdvancedFluidApp(ctk.CTk):
         self.solver.v.fill(0)
         self.solver.density.fill(0)
         self.solver.pressure.fill(0)
+        self.solver.u_prev.fill(0)
+        self.solver.v_prev.fill(0)
+        self.solver.density_prev.fill(0)
     
     def toggle_pause(self):
         """Toggle simulation pause/play."""
@@ -463,15 +450,19 @@ class AdvancedFluidApp(ctk.CTk):
         """Update simulation and visualization."""
         if self.is_running:
             # Add density at mouse position
+            self.solver.add_density(self.mouse_x, self.mouse_y, 30, radius=6)
+            
+            # Add velocity when clicking
             if self.mouse_pressed:
-                self.solver.add_density(self.mouse_x, self.mouse_y, 50, radius=8)
-                # Add upward velocity when clicking
-                self.solver.add_velocity_source(
-                    self.mouse_x, self.mouse_y, 0, -3, radius=8
-                )
+                # Calculate velocity from mouse movement
+                vx = (self.mouse_x - self.last_mouse_x) * 0.5
+                vy = (self.mouse_y - self.last_mouse_y) * 0.5
+                self.solver.add_velocity_source(self.mouse_x, self.mouse_y, vx, -vy, radius=8)
+                self.last_mouse_x = self.mouse_x
+                self.last_mouse_y = self.mouse_y
             else:
-                # Continuous source
-                self.solver.add_density(self.mouse_x, self.mouse_y, 20, radius=5)
+                # Small upward velocity for continuous flow
+                self.solver.add_velocity_source(self.mouse_x, self.mouse_y, 0, -1, radius=5)
             
             # Step simulation
             self.solver.step()
@@ -494,7 +485,8 @@ class AdvancedFluidApp(ctk.CTk):
                 data = self.solver.get_velocity_magnitude()
                 vmax = 5
             else:  # combined
-                data = self.solver.density + 0.3 * self.solver.get_velocity_magnitude() * 20
+                vel_mag = self.solver.get_velocity_magnitude()
+                data = self.solver.density + 0.3 * vel_mag * 20
                 vmax = 100
             
             self.im.set_array(data)
@@ -503,9 +495,9 @@ class AdvancedFluidApp(ctk.CTk):
             # Update velocity vectors if enabled
             if self.show_vectors.get():
                 # Sample velocity field
-                step = 5
-                x = np.arange(0, self.solver.width, step)
-                y = np.arange(0, self.solver.height, step)
+                step = 8
+                x = np.arange(step, self.solver.width - step, step)
+                y = np.arange(step, self.solver.height - step, step)
                 X, Y = np.meshgrid(x, y)
                 
                 # Get velocities at sample points
@@ -513,11 +505,11 @@ class AdvancedFluidApp(ctk.CTk):
                 V = np.zeros_like(Y)
                 for i, xi in enumerate(x):
                     for j, yj in enumerate(y):
-                        if 0 <= int(xi) < self.solver.width and 0 <= int(yj) < self.solver.height:
-                            U[j, i] = 0.5 * (self.solver.u[int(yj), int(xi)] + 
-                                            self.solver.u[int(yj), int(xi)+1])
-                            V[j, i] = 0.5 * (self.solver.v[int(yj), int(xi)] + 
-                                            self.solver.v[int(yj)+1, int(xi)])
+                        xi_int = int(xi)
+                        yj_int = int(yj)
+                        if 0 <= xi_int < self.solver.width and 0 <= yj_int < self.solver.height:
+                            U[j, i] = self.solver.u[yj_int, xi_int]
+                            V[j, i] = self.solver.v[yj_int, xi_int]
                 
                 # Remove old quiver
                 if self.quiver is not None:
@@ -526,19 +518,23 @@ class AdvancedFluidApp(ctk.CTk):
                 # Create new quiver
                 self.quiver = self.ax.quiver(
                     X, Y, U, V,
-                    scale=20,
+                    scale=30,
                     color='white',
-                    alpha=0.6,
-                    width=0.003
+                    alpha=0.7,
+                    width=0.003,
+                    headwidth=3,
+                    headlength=4
                 )
             else:
                 if self.quiver is not None:
                     self.quiver.remove()
                     self.quiver = None
             
-            self.canvas.draw()
+            self.canvas.draw_idle()
         except Exception as e:
             print(f"Visualization error: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 def main():
