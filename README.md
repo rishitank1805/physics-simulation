@@ -17,6 +17,25 @@ A simple and understandable physics simulation in Python demonstrating basic mec
 pip install -r requirements.txt
 ```
 
+## Testing
+
+Run the test suite to verify all simulations work correctly:
+
+```bash
+python test_simulations.py
+```
+
+Or using pytest (if installed):
+```bash
+pytest test_simulations.py -v
+```
+
+The test suite includes:
+- **Particle Physics Tests**: Gravity, collisions, friction, boundary conditions
+- **Tap Flow Tests**: Torricelli's law, flow rate calculations, fluid types
+- **Advanced Fluid Solver Tests**: Navier-Stokes solver, boundary conditions, advection, diffusion
+- **Integration Tests**: End-to-end simulation behavior
+
 ## Usage
 
 ### Particle Physics Simulation
