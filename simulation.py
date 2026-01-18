@@ -49,14 +49,13 @@ class Particle:
         # Friction force is proportional to velocity magnitude
         if total_friction > 0:
             speed = np.sqrt(self.vx**2 + self.vy**2)
-            if speed > 0:
+            if speed > 1e-10:  # Avoid division by very small numbers
                 # Friction acceleration opposes velocity direction
-                friction_ax = -total_friction * (self.vx / speed) * speed
-                friction_ay = -total_friction * (self.vy / speed) * speed
-                
-                # Apply friction to velocity
-                self.vx += friction_ax * dt
-                self.vy += friction_ay * dt
+                # Simplified: directly reduce velocity by friction coefficient
+                friction_factor = 1 - total_friction * dt
+                friction_factor = max(0, friction_factor)  # Prevent negative
+                self.vx *= friction_factor
+                self.vy *= friction_factor
                 
                 # Stop very small velocities to prevent jitter
                 if abs(self.vx) < 0.01:
@@ -67,9 +66,23 @@ class Particle:
         # Apply gravity to vertical velocity
         self.vy += gravity * dt
         
+        # Validate dt
+        if dt <= 0 or not np.isfinite(dt):
+            dt = 0.01  # Default safe value
+        
         # Update position
         self.x += self.vx * dt
         self.y += self.vy * dt
+        
+        # Check for NaN or Inf values
+        if not np.isfinite(self.x):
+            self.x = 0
+        if not np.isfinite(self.y):
+            self.y = 0
+        if not np.isfinite(self.vx):
+            self.vx = 0
+        if not np.isfinite(self.vy):
+            self.vy = 0
         
         # Handle collisions with boundaries
         if bounds:

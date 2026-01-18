@@ -96,7 +96,16 @@ class TapFlowSimulation:
     
     def calculate_exit_velocity(self):
         """Calculate exit velocity using Torricelli's law: v = sqrt(2gh)"""
-        return np.sqrt(2 * self.gravity * self.tap_height)
+        # Handle edge cases
+        if self.tap_height <= 0:
+            return 0.0
+        if self.gravity <= 0:
+            return 0.0
+        velocity = np.sqrt(2 * self.gravity * self.tap_height)
+        # Check for NaN or Inf
+        if not np.isfinite(velocity):
+            return 0.0
+        return velocity
     
     def set_tap_height(self, height):
         """Update tap height and recalculate velocity."""
@@ -133,7 +142,11 @@ class TapFlowSimulation:
         if len(self.particles) < self.max_particles:
             spread = 0.1
             vx = np.random.uniform(-spread, spread)
-            vy = -self.exit_velocity * (self.sim_height / self.tap_height)
+            # Handle division by zero or very small tap_height
+            if self.tap_height > 1e-6:
+                vy = -self.exit_velocity * (self.sim_height / self.tap_height)
+            else:
+                vy = -self.exit_velocity
             
             particle = {
                 'x': self.tap_x + np.random.uniform(-0.05, 0.05),
@@ -150,14 +163,23 @@ class TapFlowSimulation:
         if np.random.random() < particles_per_second * dt:
             self.add_particle()
         
+        # Validate dt
+        if dt <= 0 or not np.isfinite(dt):
+            dt = 0.01
+        
         for particle in self.particles[:]:
-            particle['vy'] += self.gravity * dt * (self.sim_height / self.tap_height)
+            # Handle division by zero or very small tap_height
+            if self.tap_height > 1e-6:
+                particle['vy'] += self.gravity * dt * (self.sim_height / self.tap_height)
+            else:
+                particle['vy'] += self.gravity * dt
             
             drag_coefficient = 0.02 * self.fluid['viscosity']
             speed = np.sqrt(particle['vx']**2 + particle['vy']**2)
-            if speed > 0:
-                particle['vx'] *= (1 - drag_coefficient * dt)
-                particle['vy'] *= (1 - drag_coefficient * dt)
+            if speed > 1e-10:  # Avoid issues with very small speeds
+                drag_factor = max(0, 1 - drag_coefficient * dt)  # Prevent negative
+                particle['vx'] *= drag_factor
+                particle['vy'] *= drag_factor
             
             particle['x'] += particle['vx'] * dt
             particle['y'] += particle['vy'] * dt

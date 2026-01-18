@@ -22,10 +22,17 @@ class AdvancedFluidSolver:
     
     def __init__(self, width=100, height=100, viscosity=0.01, dt=0.1):
         """Initialize the fluid solver."""
-        self.width = width
-        self.height = height
-        self.viscosity = viscosity
-        self.dt = dt
+        # Validate and set dimensions
+        self.width = max(3, int(width))  # Minimum 3 for boundary conditions
+        self.height = max(3, int(height))
+        
+        # Validate viscosity
+        self.viscosity = max(0.0, float(viscosity))
+        
+        # Validate time step
+        if dt <= 0 or not np.isfinite(dt):
+            dt = 0.1
+        self.dt = float(dt)
         
         # Velocity fields (centered grid for simplicity)
         self.u = np.zeros((height, width))  # x-velocity
@@ -42,31 +49,55 @@ class AdvancedFluidSolver:
     
     def add_velocity_source(self, x, y, vx, vy, radius=5):
         """Add velocity at a specific location."""
+        # Validate inputs
+        if not np.isfinite(x) or not np.isfinite(y):
+            return
+        if not np.isfinite(vx) or not np.isfinite(vy):
+            return
+        if radius <= 0:
+            return
+        
         y_idx = int(np.clip(y, 0, self.height - 1))
         x_idx = int(np.clip(x, 0, self.width - 1))
+        
+        radius_sq = radius * radius
+        if radius_sq < 1e-10:
+            return
         
         for dy in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
                 dist_sq = dx*dx + dy*dy
-                if dist_sq <= radius * radius:
+                if dist_sq <= radius_sq:
                     cy = int(np.clip(y_idx + dy, 0, self.height - 1))
                     cx = int(np.clip(x_idx + dx, 0, self.width - 1))
-                    weight = max(0, 1 - dist_sq / (radius * radius))
+                    weight = max(0, 1 - dist_sq / radius_sq)
                     self.u[cy, cx] += vx * weight
                     self.v[cy, cx] += vy * weight
     
     def add_density_source(self, x, y, amount, radius=5):
         """Add density (fluid) at a specific location."""
+        # Validate inputs
+        if not np.isfinite(x) or not np.isfinite(y):
+            return
+        if not np.isfinite(amount):
+            return
+        if radius <= 0:
+            return
+        
         y_idx = int(np.clip(y, 0, self.height - 1))
         x_idx = int(np.clip(x, 0, self.width - 1))
+        
+        radius_sq = radius * radius
+        if radius_sq < 1e-10:
+            return
         
         for dy in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
                 dist_sq = dx*dx + dy*dy
-                if dist_sq <= radius * radius:
+                if dist_sq <= radius_sq:
                     cy = int(np.clip(y_idx + dy, 0, self.height - 1))
                     cx = int(np.clip(x_idx + dx, 0, self.width - 1))
-                    weight = max(0, 1 - dist_sq / (radius * radius))
+                    weight = max(0, 1 - dist_sq / radius_sq)
                     self.density[cy, cx] += amount * weight
     
     def set_bounds(self, b, x, is_velocity=False):
@@ -92,27 +123,70 @@ class AdvancedFluidSolver:
     
     def linear_solve(self, b, x, x0, a, c, iterations=20, is_velocity=False):
         """Solve linear system using Gauss-Seidel iteration."""
+        # Handle division by zero
+        if abs(c) < 1e-10:
+            x[:] = x0
+            return
+        
+        # Ensure iterations is valid
+        iterations = max(1, int(iterations))
+        
         for _ in range(iterations):
             x[1:-1, 1:-1] = (x0[1:-1, 1:-1] + 
                            a * (x[2:, 1:-1] + x[:-2, 1:-1] + 
                                 x[1:-1, 2:] + x[1:-1, :-2])) / c
             self.set_bounds(b, x, is_velocity)
+        
+        # Check for NaN or Inf
+        if not np.all(np.isfinite(x)):
+            x[:] = x0
     
     def diffuse(self, b, x, x0, diff, dt, is_velocity=False):
         """Diffuse a field (viscosity effect)."""
-        if diff == 0:
+        if diff <= 0 or abs(diff) < 1e-10:
             x[:] = x0
             return
-        a = dt * diff * (self.width - 2) * (self.height - 2)
-        self.linear_solve(b, x, x0, a, 1 + 4 * a, is_velocity=is_velocity)
+        
+        # Validate dimensions
+        if self.width < 3 or self.height < 3:
+            x[:] = x0
+            return
+        
+        # Validate dt
+        if dt <= 0 or not np.isfinite(dt):
+            dt = 0.1
+        
+        a = dt * diff * max(1, (self.width - 2)) * max(1, (self.height - 2))
+        c = 1 + 4 * a
+        if c < 1e-10:
+            x[:] = x0
+            return
+        
+        self.linear_solve(b, x, x0, a, c, is_velocity=is_velocity)
     
     def advect(self, b, d, d0, u, v, dt, is_velocity=False):
         """Advect a field along the velocity."""
-        dt0_x = dt * (self.width - 2)
-        dt0_y = dt * (self.height - 2)
+        # Validate dimensions
+        if self.width < 3 or self.height < 3:
+            d[:] = d0
+            self.set_bounds(b, d, is_velocity)
+            return
+        
+        # Validate dt
+        if dt <= 0 or not np.isfinite(dt):
+            dt = 0.1
+        
+        dt0_x = dt * max(1, (self.width - 2))
+        dt0_y = dt * max(1, (self.height - 2))
         
         for j in range(1, self.height - 1):
             for i in range(1, self.width - 1):
+                # Check for NaN or Inf in velocity
+                if not np.isfinite(u[j, i]):
+                    u[j, i] = 0
+                if not np.isfinite(v[j, i]):
+                    v[j, i] = 0
+                
                 # Trace back along velocity
                 x_pos = i - dt0_x * u[j, i]
                 y_pos = j - dt0_y * v[j, i]
@@ -125,22 +199,48 @@ class AdvancedFluidSolver:
                 i0, j0 = int(x_pos), int(y_pos)
                 i1, j1 = min(i0 + 1, self.width - 1), min(j0 + 1, self.height - 1)
                 
-                s1, t1 = x_pos - i0, y_pos - j0
+                # Ensure indices are valid
+                i0 = max(0, min(i0, self.width - 1))
+                j0 = max(0, min(j0, self.height - 1))
+                i1 = max(0, min(i1, self.width - 1))
+                j1 = max(0, min(j1, self.height - 1))
+                
+                s1, t1 = x_pos - int(x_pos), y_pos - int(y_pos)
                 s0, t0 = 1 - s1, 1 - t1
                 
-                d[j, i] = (s0 * (t0 * d0[j0, i0] + t1 * d0[j1, i0]) +
-                          s1 * (t0 * d0[j0, i1] + t1 * d0[j1, i1]))
+                # Check for valid values
+                if (np.isfinite(d0[j0, i0]) and np.isfinite(d0[j1, i0]) and
+                    np.isfinite(d0[j0, i1]) and np.isfinite(d0[j1, i1])):
+                    d[j, i] = (s0 * (t0 * d0[j0, i0] + t1 * d0[j1, i0]) +
+                              s1 * (t0 * d0[j0, i1] + t1 * d0[j1, i1]))
+                else:
+                    d[j, i] = d0[j, i]  # Fallback to original value
         
         self.set_bounds(b, d, is_velocity)
     
     def project(self, u, v, p, div):
         """Project velocity to be divergence-free (incompressible)."""
-        # Calculate divergence
-        h = 0.5 / min(self.width, self.height)
+        # Validate dimensions
+        if self.width < 3 or self.height < 3:
+            return
+        
+        # Calculate divergence with safe division
+        min_dim = min(self.width, self.height)
+        if min_dim < 1:
+            return
+        
+        h = 0.5 / min_dim
+        if h < 1e-10 or not np.isfinite(h):
+            h = 0.1  # Safe default
+        
         div[1:-1, 1:-1] = -0.5 * h * (
             u[1:-1, 2:] - u[1:-1, :-2] +
             v[2:, 1:-1] - v[:-2, 1:-1]
         )
+        
+        # Check for NaN or Inf
+        if not np.all(np.isfinite(div)):
+            div.fill(0)
         
         p.fill(0)
         self.set_bounds(0, div, False)
@@ -149,9 +249,16 @@ class AdvancedFluidSolver:
         # Solve for pressure
         self.linear_solve(0, p, div, 1, 4, is_velocity=False)
         
-        # Subtract pressure gradient
-        u[1:-1, 1:-1] -= 0.5 * (p[1:-1, 2:] - p[1:-1, :-2]) / h
-        v[1:-1, 1:-1] -= 0.5 * (p[2:, 1:-1] - p[:-2, 1:-1]) / h
+        # Subtract pressure gradient with safe division
+        if h > 1e-10:
+            u[1:-1, 1:-1] -= 0.5 * (p[1:-1, 2:] - p[1:-1, :-2]) / h
+            v[1:-1, 1:-1] -= 0.5 * (p[2:, 1:-1] - p[:-2, 1:-1]) / h
+        
+        # Check for NaN or Inf
+        if not np.all(np.isfinite(u)):
+            u.fill(0)
+        if not np.all(np.isfinite(v)):
+            v.fill(0)
         
         self.set_bounds(1, u, True)
         self.set_bounds(1, v, True)
@@ -187,7 +294,10 @@ class AdvancedFluidSolver:
     
     def get_velocity_magnitude(self):
         """Get velocity magnitude field for visualization."""
-        return np.sqrt(self.u**2 + self.v**2)
+        vel_mag = np.sqrt(self.u**2 + self.v**2)
+        # Replace NaN or Inf with 0
+        vel_mag = np.nan_to_num(vel_mag, nan=0.0, posinf=0.0, neginf=0.0)
+        return vel_mag
 
 
 class AdvancedFluidApp(ctk.CTk):
